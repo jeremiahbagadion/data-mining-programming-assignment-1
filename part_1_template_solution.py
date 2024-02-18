@@ -20,7 +20,7 @@ from sklearn.model_selection import GridSearchCV
 
 from typing import Any
 from numpy.typing import NDArray
-
+from utils import train_simple_classifier_with_cv
 import numpy as np
 import utils as u
 
@@ -89,19 +89,33 @@ class Section1:
         X, y, Xtest, ytest = u.prepare_data()
         Xtrain, ytrain = u.filter_out_7_9s(X, y)
         Xtest, ytest = u.filter_out_7_9s(Xtest, ytest)
-        Xtrain = nu.scale_data(Xtrain)
-        Xtest = nu.scale_data(Xtest)
+        Xtrain, scaled_correctly_train = nu.scale_data(Xtrain)
+        Xtest, scaled_correctly_test = nu.scale_data(Xtest)
 
-        answer = {}
+        # Validate if data is scaled correctly and labels are integers
+        if not (scaled_correctly_train and scaled_correctly_test):
+            raise ValueError("Data scaling error.")
+
+        if not (ytrain.dtype == int and ytest.dtype == int):
+            raise ValueError("Labels are not integers.")
+
+        answer = {
+            "length_Xtrain": len(Xtrain),  # Number of samples in the training set
+            "length_Xtest": len(Xtest),  # Number of samples in the test set
+            "length_ytrain": len(ytrain),  # Number of labels in the training set
+            "length_ytest": len(ytest),  # Number of labels in the test set
+            "max_Xtrain": Xtrain.max(),  # Maximum value in the training set
+            "max_Xtest": Xtest.max(),
+            }
 
         # Enter your code and fill the `answer` dictionary
+        print(f"Length of Xtrain: {len(Xtrain)}")
+        print(f"Length of Xtest: {len(Xtest)}")
+        print(f"Length of ytrain: {len(ytrain)}")
+        print(f"Length of ytest: {len(ytest)}")
+        print(f"Maximum value in Xtrain: {Xtrain.max()}")
+        print(f"Maximum value in Xtest: {Xtest.max()}")
 
-        answer["length_Xtrain"] = None  # Number of samples
-        answer["length_Xtest"] = None
-        answer["length_ytrain"] = None
-        answer["length_ytest"] = None
-        answer["max_Xtrain"] = None
-        answer["max_Xtest"] = None
         return answer, Xtrain, ytrain, Xtest, ytest
 
     """
@@ -119,13 +133,21 @@ class Section1:
         y: NDArray[np.int32],
     ):
         # Enter your code and fill the `answer` dictionary
+        clf = DecisionTreeClassifier(random_state=42)
+        cv = KFold(n_splits=5, shuffle=True, random_state=42)
+        cv_results = train_simple_classifier_with_cv(X=X, y=y, cv_class=KFold, estimator_class=DecisionTreeClassifier, n_splits=5, print_results=False)
 
         answer = {}
-        answer["clf"] = None  # the estimator (classifier instance)
-        answer["cv"] = None  # the cross validator instance
+        answer["clf"] = clf  # the estimator (classifier instance)
+        answer["cv"] = cv  # the cross validator instance
         # the dictionary with the scores  (a dictionary with
         # keys: 'mean_fit_time', 'std_fit_time', 'mean_accuracy', 'std_accuracy'.
-        answer["scores"] = None
+        answer["scores"] = {
+            'mean_fit_time': cv_results['mean_fit_time'], 
+            'std_fit_time': cv_results['std_fit_time'], 
+            'mean_accuracy': cv_results['test_score'].mean(), 
+            'std_accuracy': cv_results['test_score'].std()
+        }
         return answer
 
     # ---------------------------------------------------------
