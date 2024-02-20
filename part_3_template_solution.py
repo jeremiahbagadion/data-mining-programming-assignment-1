@@ -1,6 +1,16 @@
 import numpy as np
 from numpy.typing import NDArray
 from typing import Any
+from sklearn.metrics import top_k_accuracy_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold, cross_validate
+from sklearn.metrics import make_scorer, precision_score, recall_score, f1_score, confusion_matrix
+from sklearn.utils.class_weight import compute_class_weight
+from sklearn.svm import SVC
+import matplotlib.pyplot as plt
+import utils as u
+import new_utils as nu
+
 
 """
    In the first two set of tasks, we will narrowly focus on accuracy - 
@@ -69,6 +79,30 @@ class Section3:
 
         answer = {}
 
+        k_values = [1, 2, 3, 4, 5]
+        train_scores = []
+        test_scores = []
+
+        lr_clf = LogisticRegression(max_iter=300, random_state=42)
+        lr_clf.fit(Xtrain, ytrain)
+
+
+        for k in k_values:
+            score_train = top_k_accuracy_score(ytrain, lr_clf.predict_proba(Xtrain), k=k)
+            train_scores.append((k, score_train))
+            
+            # Calculate top-k accuracy for testing data
+            score_test = top_k_accuracy_score(ytest, lr_clf.predict_proba(Xtest), k=k)
+            test_scores.append((k, score_test))
+
+
+        answer["plot_k_vs_score_train"] = train_scores
+        answer["plot_k_vs_score_test"] = test_scores
+        answer["text_rate_accuracy_change"] = "The rate of accuracy change when moving from top-1 to top-k accuracy generally shows an increasing trend, reflecting the model's ability to correctly identify the true label within its top k predictions. This increase might plateau as k increases, indicating that the model is confident in its top choices."
+        answer["text_is_topk_useful_and_why"] = "Top-k accuracy can be particularly useful for datasets with multiple classes that are not mutually exclusive or when the classes are highly imbalanced. It provides a more nuanced understanding of model performance, especially in cases where being 'close' to the correct answer is still valuable."
+
+
+
         """
         # `answer` is a dictionary with the following keys:
         - integers for each topk (1,2,3,4,5)
@@ -110,8 +144,36 @@ class Section3:
         NDArray[np.int32],
     ]:
         """"""
+
+        X, y, Xtest, ytest = u.prepare_data()
+
+        X, y = u.filter_out_7_9s(X, y)
+        Xtest, ytest = u.filter_out_7_9s(Xtest, ytest)
+
+        X, y = nu.remove_90_percent_nines(X, y)
+        Xtest, ytest = nu.remove_90_percent_nines(Xtest, ytest)
+
+        y = np.where(y == 7, 0, 1)
+        ytest = np.where(ytest == 7, 0, 1)
+
+        X, _ = nu.scale_data(X)
+        Xtest, _ = nu.scale_data(Xtest)
+
+
         # Enter your code and fill the `answer` dictionary
-        answer = {}
+        answer = {
+            "length_Xtrain": len(X),
+            "length_Xtest": len(Xtest),
+            "length_ytrain": len(y),
+            "length_ytest": len(ytest),
+            "max_Xtrain": np.max(X),
+            "max_Xtest": np.max(Xtest),
+        }
+
+        print(f"Length of the filtered Xtrain: {answer['length_Xtrain']}, and ytrain: {answer['length_ytrain']}")
+        print(f"Length of the filtered Xtest: {answer['length_Xtest']}, and ytest: {answer['length_ytest']}")
+        print(f"Maximum value in Xtrain: {answer['max_Xtrain']}")
+        print(f"Maximum value in Xtest: {answer['max_Xtest']}")
 
         # Answer is a dictionary with the same keys as part 1.B
 
@@ -138,6 +200,41 @@ class Section3:
 
         # Enter your code and fill the `answer` dictionary
         answer = {}
+
+
+        clf = SVC(random_state=42)
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+        scoring = {
+            'accuracy': 'accuracy',
+            'precision': make_scorer(precision_score, average='macro'),
+            'recall': make_scorer(recall_score, average='macro'),
+            'f1': make_scorer(f1_score, average='macro')
+        }
+
+        scores = cross_validate(clf, X, y, scoring=scoring, cv=cv)
+        score_summary = {metric: {"mean": np.mean(scores[f'test_{metric}']), "std": np.std(scores[f'test_{metric}'])} for metric in scoring}
+        is_precision_higher = score_summary['precision']['mean'] > score_summary['recall']['mean']
+
+        clf.fit(X, y)
+        y_pred_train = clf.predict(X)
+        y_pred_test = clf.predict(Xtest)
+
+        # Generate confusion matrices
+        cm_train = confusion_matrix(y, y_pred_train)
+        cm_test = confusion_matrix(ytest, y_pred_test)
+
+        answer['scores'] = score_summary
+        answer['cv'] = 'StratifiedKFold'
+        answer['clf'] = 'SVC'
+        answer['is_precision_higher_than_recall'] = is_precision_higher
+        answer['explain_is_precision_higher_than_recall'] = "precision is higher. When precision is higher than recall, it means the model is more conservative in predicting the positive class; it prioritizes being correct when it does predict positive, potentially at the cost of missing some positive cases."
+        answer['confusion_matrix_train'] = cm_train
+        answer['confusion_matrix_test'] = cm_test
+
+       
+
+        print(answer['explain_is_precision_higher_than_recall'])
 
         """
         Answer is a dictionary with the following keys: 
@@ -176,7 +273,43 @@ class Section3:
     ) -> dict[str, Any]:
         """"""
         # Enter your code and fill the `answer` dictionary
-        answer = {}
+
+        classes = np.unique(y)
+        class_weights = compute_class_weight(class_weight='balanced', classes=classes, y=y)
+        class_weights_dict = dict(zip(classes, class_weights))
+
+        clf = SVC(class_weight='balanced', random_state=42)
+
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        scoring = {'accuracy': 'accuracy', 'precision': make_scorer(precision_score, average='macro', zero_division=0),
+                   'recall': make_scorer(recall_score, average='macro'), 'f1': make_scorer(f1_score, average='macro')}
+        
+        scores = cross_validate(clf, X, y, scoring=scoring, cv=cv, return_train_score=False)
+
+        clf.fit(X, y)
+        y_pred_test = clf.predict(Xtest)
+
+        # Confusion Matrix
+        cm_test = confusion_matrix(ytest, y_pred_test)
+
+        answer = {
+            "scores": {
+                "mean_accuracy": np.mean(scores['test_accuracy']),
+                "std_accuracy": np.std(scores['test_accuracy']),
+                "mean_precision": np.mean(scores['test_precision']),
+                "std_precision": np.std(scores['test_precision']),
+                "mean_recall": np.mean(scores['test_recall']),
+                "std_recall": np.std(scores['test_recall']),
+                "mean_f1": np.mean(scores['test_f1']),
+                "std_f1": np.std(scores['test_f1']),
+            },
+            "cv": "StratifiedKFold",
+            "clf": "SVC",
+            "class_weights": class_weights_dict,
+            "confusion_matrix_test": cm_test,
+            "explain_purpose_of_class_weights": "To adjust for imbalances in class frequencies, improving model fairness.",
+            "explain_performance_difference": "Performance may improve for minority classes due to the balanced emphasis."
+        }
 
         """
         Answer is a dictionary with the following keys: 
